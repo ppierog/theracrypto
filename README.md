@@ -52,11 +52,55 @@ When you're ready to make this README your own, just edit this file and use the 
 
 Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
 
-## Name
-Choose a self-explaining name for your project.
+## TheraCrypto
+Small WASM project to do RSA/ AES in WASM.
+
 
 ## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Theracrypto is a WASM trusty zone written in GO. It gives possibility to do RSA in WASM.
+As there syscall/js api is not so stable, this pice of code could be not so stable also:)
+There is one PrivateKey storage and 3 additionall PublicKey storages in the WASM.
+User can generate via GeneratePrivateKey() as well, as can load PrivateKey via LoadPrivateKey().
+For PublicKeys there is only possibility to load via LoadPublicKey() to the one of predefined banks in the WASM memory.
+
+Basic API Description in js:
+Each functions returns js object like below :
+{
+    "error" : string // string value present only in case of error
+    "ret"   : T // return in case of no errors, where T is a return type from function below
+}
+
+GeneratePrivKey(int keyLength) -> bool
+Generate Private key in trusty WASM zone, returns true if success. Supported key length
+is 2048 or 4096.
+
+FetchPrivKey() -> b64 string
+Fetch Private Key from WASM - returns marshaled Private Key which is next converted to base64 string.
+
+LoadPrivKey(base64 string) -> bool
+Load base64 Private Key to trusty WASM - returns true if this key can be decoded from base64 and loaded to memory.
+
+LoadPubKey(base64 string , keyNum int) -> bool
+Load base64 Public Key to trusty WASM - return true if this key can be decoded from base64 and loaded to memory.
+User can load only to banks 1, 2, 3, beacuse of bank 0 is reserved for Public Key which is derived from Private Key.
+Assuming the PrivateKey is loaded in the memory via GeneratePrivateKey() or LoadPrivateKey(). User can fetch PrivateKey
+via FetchPrivateKey() and Public part of Key by FetchPublicKey(0)
+
+FetchPubKey(keyNum) -> b64 string
+Fetch PubKey from wasm memory marshaled and converted to base64 string.
+FetchPubKey(0) - Fetch complementary of PrivateKey
+FetchPubKey(x) - Fetch Pub Key previously loaded by LoadPubKey(), where x is bank in WASM memory : 1, 2 ,3
+
+Encrypt(data []uint8) -> cipher []uint8
+Encrypt with Public Key which is complementary to PrivateKey
+Encrypt(data) == EncryptPubKey(data, 0)
+
+EncryptPublicKey(data []uint8) - cipher []uint8
+Encrypt with Public Key from bank : 0 , 1, 2, 3
+
+Decrypt(cipher []uint8) -> plain []uint8
+Decrypt data with Private Key
+
 
 ## Badges
 On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
@@ -69,12 +113,14 @@ Within a particular ecosystem, there may be a common way of installing things, s
 
 ## Usage
 
-    myTab = "aslk1234567890"
-    let utf8Encode = new TextEncoder();
-    let encoded = utf8Encode.encode(myTab);
+    mySecret = "aslk1234567890"
+    utf8Encode = new TextEncoder();
+    encoded = utf8Encode.encode(mySecret);
 
+    // Generate Private Key, size 2048 bits
     GenerateKey(2048)
 
+    // Encrypt & Decrypt in WASM
     encrypted = Encrypt(encoded)
     decrypted = Decrypt(encrypted)
 
