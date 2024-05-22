@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// https://blog.claude.nl/posts/interface-between-go-1.16-and-javascript-syscall-js/
 type Key interface {
 	rsa.PrivateKey | rsa.PublicKey
 }
@@ -36,9 +37,12 @@ type u8 interface {
 var privRepo KeyStorage[rsa.PrivateKey]
 var pubRepo [3]KeyStorage[rsa.PublicKey]
 
-func GenerateKey() (bool, error) {
+func GenerateKey(length int) (bool, error) {
 	privRepo.Loaded = false
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if length != 2048 && length != 4096 {
+		return false, errors.New("Not supported key length, use 2048 or 4096")
+	}
+	privateKey, err := rsa.GenerateKey(rand.Reader, length)
 	if err != nil {
 		return false, err
 	}
@@ -91,60 +95,56 @@ func LoadPubKey(b64Pub string, num KeyNum) (bool, error) {
 	return loadKey(b64Pub, &pubRepo[num], x509.ParsePKCS1PublicKey)
 }
 
-func encryptPubKey(plainText string, key *rsa.PublicKey) (string, error) {
+func encryptPubKey(plain []byte, key *rsa.PublicKey) ([]byte, error) {
 
-	msg := []byte(plainText)
-	cipher, err := rsa.EncryptPKCS1v15(rand.Reader, key, msg)
+	cipher, err := rsa.EncryptPKCS1v15(rand.Reader, key, plain)
+
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return base64.StdEncoding.EncodeToString(cipher), nil
+
+	return cipher, nil
 }
 
-func EncryptPubKey(plainText string, num KeyNum) (string, error) {
+func EncryptPubKey(plain []byte, num KeyNum) ([]byte, error) {
 	if num > Key3 {
-		return "", errors.New("Bank Not supported")
+		return nil, errors.New("Bank Not supported")
 	}
 	if !pubRepo[num].Loaded {
-		return "", errors.New("Key Not loaded")
+		return nil, errors.New("Key Not loaded")
 	}
-	return encryptPubKey(plainText, &pubRepo[num].Key)
+	return encryptPubKey(plain, &pubRepo[num].Key)
 
 }
 
-func Encrypt(plainText string) (string, error) {
+func Encrypt(plain []byte) ([]byte, error) {
 	if !privRepo.Loaded {
-		return "", errors.New("PrivateKey not loaded")
+		return nil, errors.New("PrivateKey not loaded")
 	}
 
-	return encryptPubKey(plainText, &privRepo.Key.PublicKey)
+	return encryptPubKey(plain, &privRepo.Key.PublicKey)
 }
 
-func Decrypt(b64 string) (string, error) {
+func Decrypt(cipher []byte) ([]byte, error) {
 	if !privRepo.Loaded {
-		return "", errors.New("PrivateKey not loaded")
-	}
-	cipher, err := base64.StdEncoding.DecodeString(b64)
-
-	if err != nil {
-		return "", err
+		return nil, errors.New("PrivateKey not loaded")
 	}
 
 	plainText, err := rsa.DecryptPKCS1v15(rand.Reader, &privRepo.Key, cipher)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(plainText), nil
+	return plainText, nil
 }
 
-func JsonWrapper[T any](F func(args []js.Value) (T, error)) js.Func {
+func JsonWrapper[T any](F func(args []js.Value) (T, error), name string) js.Func {
 
 	jsonFunc := js.FuncOf(func(this js.Value, args []js.Value) any {
 
 		status, err := F(args)
 
 		if err != nil {
-			fmt.Printf("Unable to execute %v : err %v\n", F, err)
+			fmt.Printf("Unable to execute %s : err %v\n", name, err)
 			return err.Error()
 
 		}
@@ -156,18 +156,48 @@ func JsonWrapper[T any](F func(args []js.Value) (T, error)) js.Func {
 
 }
 
+func JsonWrapperCryptoRSA(args []js.Value, action func([]byte) ([]byte, error)) (interface{}, error) {
+	if len(args) != 1 {
+		return nil, errors.New("Invalid number of arguments passed")
+	}
+
+	if args[0].Type() != js.TypeObject || args[0].Length() == 0 {
+		return nil, errors.New("Wrong argument passed, Expected array with non zero length")
+	}
+	//@TODO:  Copy overhead
+	var in []uint8
+	for i := 0; i < args[0].Length(); i++ {
+		in = append(in, (uint8(args[0].Index(i).Int())))
+	}
+
+	encrypted, err := action(in)
+	if err != nil {
+		return nil, err
+	}
+	//@TODO:  Copy overhead
+	var ret []interface{}
+	for i := 0; i < len(encrypted); i++ {
+		ret = append(ret, encrypted[i])
+	}
+
+	return ret, nil
+
+}
+
 func main() {
 
 	now := time.Now()
 	fmt.Println("Go Web Assembly ", now)
 
 	js.Global().Set("GenerateKey", JsonWrapper(func(args []js.Value) (bool, error) {
-		if len(args) != 0 {
+		if len(args) != 1 {
 			return false, errors.New("Invalid number of arguments passed")
 		}
-		return GenerateKey()
+		length := args[0].Int()
 
-	}))
+		return GenerateKey(length)
+
+	}, "GenerateKey"))
 
 	js.Global().Set("LoadKey", JsonWrapper(func(args []js.Value) (bool, error) {
 		if len(args) != 1 {
@@ -176,7 +206,7 @@ func main() {
 		input := args[0].String()
 		return LoadPrivKey(input)
 
-	}))
+	}, "LoadKey"))
 
 	js.Global().Set("LoadPubKey", JsonWrapper(func(args []js.Value) (bool, error) {
 		if len(args) != 2 {
@@ -186,27 +216,71 @@ func main() {
 		num := args[1].Int()
 		return LoadPubKey(pubKey, KeyNum(num))
 
-	}))
+	}, "LoadPubKey"))
 
-	js.Global().Set("Encrypt", JsonWrapper(func(args []js.Value) (string, error) {
+	/*
+		myTab = "aslk1234567890"
+		let utf8Encode = new TextEncoder();
+		let encoded = utf8Encode.encode(myTab);
+
+		retTab = Encrypt(encoded)
+		//GenerateKey(2048)
+		myTab = "aslk1234567890"
+		//let utf8Encode = new TextEncoder();
+		//let encoded = utf8Encode.encode(myTab);
+
+		encrypted = Encrypt(encoded)
+		decrypted = Decrypt(encrypted)
+		console.log(decrypted)
+		String.fromCharCode.apply(null,decrypted)
+	*/
+	js.Global().Set("Encrypt", JsonWrapper(func(args []js.Value) (interface{}, error) {
+		if len(args) != 1 {
+			return nil, errors.New("Invalid number of arguments passed")
+		}
+
+		if args[0].Type() != js.TypeObject || args[0].Length() == 0 {
+			return nil, errors.New("Wrong argument passed, Expected array with non zero length")
+		}
+		//@TODO:  Copy overhead
+		var in []uint8
+		for i := 0; i < args[0].Length(); i++ {
+			in = append(in, (uint8(args[0].Index(i).Int())))
+		}
+
+		encrypted, err := Encrypt(in)
+		if err != nil {
+			return nil, err
+		}
+		//@TODO:  Copy overhead
+		var ret []interface{}
+		for i := 0; i < len(encrypted); i++ {
+			ret = append(ret, encrypted[i])
+		}
+
+		return ret, nil
+
+	}, "Encrypt"))
+
+	js.Global().Set("Decrypt", JsonWrapper(func(args []js.Value) (interface{}, error) {
 		if len(args) != 1 {
 			return "", errors.New("Invalid number of arguments passed")
 		}
-
-		input := args[0].String()
-
-		return Encrypt(input)
-
-	}))
-
-	js.Global().Set("Decrypt", JsonWrapper(func(args []js.Value) (string, error) {
-		if len(args) != 1 {
-			return "", errors.New("Invalid number of arguments passed")
+		var in []uint8
+		for i := 0; i < args[0].Length(); i++ {
+			in = append(in, (uint8(args[0].Index(i).Int())))
 		}
-		input := args[0].String()
-		return Decrypt(input)
+		decrypted, err := Decrypt(in)
+		if err != nil {
+			return nil, err
+		}
+		var ret []interface{}
+		for i := 0; i < len(decrypted); i++ {
+			ret = append(ret, decrypted[i])
+		}
+		return ret, nil
 
-	}))
+	}, "Decrypt"))
 
 	js.Global().Set("FetchPrivKey", JsonWrapper(func(args []js.Value) (string, error) {
 		if len(args) != 0 {
@@ -214,7 +288,7 @@ func main() {
 		}
 		return FetchPrivKey()
 
-	}))
+	}, "FetchPrivKey"))
 
 	<-make(chan int64)
 }
