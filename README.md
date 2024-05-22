@@ -118,7 +118,7 @@ Within a particular ecosystem, there may be a common way of installing things, s
     encoded = utf8Encode.encode(mySecret);
 
     // Generate Private Key, size 2048 bits
-    GenerateKey(2048)
+    GeneratePrivKey(2048)
 
     // Encrypt & Decrypt in WASM
     encrypted = Encrypt(encoded)

@@ -251,7 +251,7 @@ func TestAesRepo(t *testing.T) {
 
 	in := "aslk1234aslk1234"
 
-	cipher, err := EncryptAES(&aesRepo, 0, []byte(in))
+	cipher, err := EncryptAESBlock(&aesRepo, 0, []byte(in))
 	t.Log(in)
 	t.Log([]byte(in))
 
@@ -261,7 +261,7 @@ func TestAesRepo(t *testing.T) {
 		t.Fatalf("Wrong status from EncryptAESKey")
 	}
 
-	out, err := DecryptAES(&aesRepo, 0, cipher)
+	out, err := DecryptAESBlock(&aesRepo, 0, cipher)
 
 	if err != nil {
 		t.Fatalf("Wrong status from EncryptAES")

@@ -179,7 +179,7 @@ func DecryptPrivKey(repo *KeyRepo[rsa.PrivateKey], num int, in []byte) ([]byte, 
 
 }
 
-func EncryptAES(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
+func EncryptAESBlock(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
 	return Crypto(repo, num, in, func(key *AesKey, in []byte) ([]byte, error) {
 
 		c, err := aes.NewCipher(key[:])
@@ -187,14 +187,14 @@ func EncryptAES(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
 			return nil, errors.New("could not create new cipher")
 		}
 
-		out := make([]byte, len(in))
+		var out [16]byte
 
-		c.Encrypt(out, in)
-		return out, nil
+		c.Encrypt(out[:], in)
+		return out[:], nil
 	})
 
 }
-func DecryptAES(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
+func DecryptAESBlock(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
 	return Crypto(repo, num, in, func(key *AesKey, in []byte) ([]byte, error) {
 
 		c, err := aes.NewCipher(key[:])
@@ -202,11 +202,10 @@ func DecryptAES(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
 			return nil, errors.New("could not create new cipher")
 		}
 
-		out := make([]byte, len(in))
+		var out [16]byte
+		c.Decrypt(out[:], in)
 
-		c.Decrypt(out, in)
-
-		return out, nil
+		return out[:], nil
 	})
 
 }

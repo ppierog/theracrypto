@@ -92,7 +92,12 @@ func main() {
 		}
 		length := args[0].Int()
 
-		return crypto.GeneratePrivKey(&privRepo, 0, length)
+		status, err := crypto.GeneratePrivKey(&privRepo, 0, length)
+
+		if nil == err {
+			crypto.ExtractPubKey(&privRepo.Keys[0], &pubRepo.Keys[0])
+		}
+		return status, err
 
 	}, "GeneratePrivKey", 1))
 
@@ -115,8 +120,8 @@ func main() {
 		if args[0].Type() != js.TypeString || args[1].Type() != js.TypeNumber {
 			return false, errors.New("Wrong arguments passed, Expected (b64 string, keyNum int)")
 		}
-		b64pubKey := args[0].String()
-		num := args[1].Int()
+		b64pubKey, num := args[0].String(), args[1].Int()
+
 		if num == 0 {
 			return false, errors.New("Could not load to bank 0")
 		}
@@ -184,8 +189,8 @@ func main() {
 		if args[0].Type() != js.TypeString || args[1].Type() != js.TypeNumber {
 			return false, errors.New("Wrong arguments passed, Expected (b64 string, keyNum int)")
 		}
-		b64Key := args[0].String()
-		num := args[1].Int()
+		b64Key, num := args[0].String(), args[1].Int()
+
 		return crypto.LoadAesKey(b64Key, &aesRepo, num)
 
 	}, "LoadAesKey", 2))
@@ -200,6 +205,34 @@ func main() {
 
 	}, "FetchAesKey", 1))
 
+	js.Global().Set("EncryptAesBlock", JsWrapper(func(args []js.Value) (interface{}, error) {
+
+		if args[1].Type() != js.TypeNumber {
+			return false, errors.New("Wrong arguments passed, Expected (text []byte, keyNum int)")
+		}
+
+		num := args[1].Int()
+
+		return JsWrapperCrypto(args[:1], func(input []byte) ([]byte, error) {
+			return crypto.EncryptAESBlock(&aesRepo, num, input)
+
+		})
+	}, "EncryptAesBlock", 2))
+
+	js.Global().Set("DecryptAesBlock", JsWrapper(func(args []js.Value) (interface{}, error) {
+
+		if args[1].Type() != js.TypeNumber {
+			return false, errors.New("Wrong arguments passed, Expected (text []byte, keyNum int)")
+		}
+
+		num := args[1].Int()
+
+		return JsWrapperCrypto(args[:1], func(input []byte) ([]byte, error) {
+			return crypto.DecryptAESBlock(&aesRepo, num, input)
+
+		})
+	}, "DecryptAesBlock", 2))
+
 	js.Global().Set("FromBase64", JsWrapper(func(args []js.Value) (interface{}, error) {
 
 		if args[0].Type() != js.TypeString {
@@ -207,13 +240,7 @@ func main() {
 		}
 
 		input := args[0].String()
-		marshaled, err := base64.StdEncoding.DecodeString(input)
-
-		if err != nil {
-			return nil, err
-		}
-
-		return marshaled, nil
+		return base64.StdEncoding.DecodeString(input)
 
 	}, "FromBase64", 1))
 
