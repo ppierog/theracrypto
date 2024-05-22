@@ -29,6 +29,10 @@ const ( // iota is reset to 0
 	Key3        = iota // 2
 )
 
+type u8 interface {
+	uint8
+}
+
 var privRepo KeyStorage[rsa.PrivateKey]
 var pubRepo [3]KeyStorage[rsa.PublicKey]
 
@@ -89,14 +93,11 @@ func LoadPubKey(b64Pub string, num KeyNum) (bool, error) {
 
 func encryptPubKey(plainText string, key *rsa.PublicKey) (string, error) {
 
-	fmt.Println("Before conversion", plainText)
 	msg := []byte(plainText)
-	fmt.Println("After conversion", msg)
 	cipher, err := rsa.EncryptPKCS1v15(rand.Reader, key, msg)
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("After encryption", cipher)
 	return base64.StdEncoding.EncodeToString(cipher), nil
 }
 
@@ -115,7 +116,7 @@ func Encrypt(plainText string) (string, error) {
 	if !privRepo.Loaded {
 		return "", errors.New("PrivateKey not loaded")
 	}
-	fmt.Println("plain Text  is ", plainText)
+
 	return encryptPubKey(plainText, &privRepo.Key.PublicKey)
 }
 
@@ -136,19 +137,6 @@ func Decrypt(b64 string) (string, error) {
 	return string(plainText), nil
 }
 
-func ToBase64(data []byte) string {
-	return base64.StdEncoding.EncodeToString(data)
-}
-
-func FromBase64(b64 string) ([]byte, error) {
-	cipher, err := base64.StdEncoding.DecodeString(b64)
-
-	if err != nil {
-		return nil, err
-	}
-	return cipher, nil
-}
-
 func JsonWrapper[T any](F func(args []js.Value) (T, error)) js.Func {
 
 	jsonFunc := js.FuncOf(func(this js.Value, args []js.Value) any {
@@ -156,7 +144,7 @@ func JsonWrapper[T any](F func(args []js.Value) (T, error)) js.Func {
 		status, err := F(args)
 
 		if err != nil {
-			fmt.Printf("Unable to execute %s : err %s\n", F, err)
+			fmt.Printf("Unable to execute %v : err %v\n", F, err)
 			return err.Error()
 
 		}
@@ -204,9 +192,8 @@ func main() {
 		if len(args) != 1 {
 			return "", errors.New("Invalid number of arguments passed")
 		}
-		fmt.Println("Arg0 is", args[0])
+
 		input := args[0].String()
-		fmt.Println("Arg0 is now", input)
 
 		return Encrypt(input)
 
