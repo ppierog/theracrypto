@@ -135,15 +135,15 @@ Within a particular ecosystem, there may be a common way of installing things, s
     // Aes Key Bank 0 Stream(1Mb) enc/dec
     input = Array.from({length: 1024*1024}, () => Math.floor(Math.random() * 255));
     console.log("Start Encryption")
-    const start = Date.now();
+    start = Date.now();
     encrypted = EncryptAes(input,0)
-    const end = Date.now();
+    end = Date.now();
     console.log(`Execution time: ${end - start} ms`);
 
     console.log("Start Decryption")
-    const start = Date.now();
+    start = Date.now();
     decrypted = DecryptAes(encrypted.ret,0)
-    const end = Date.now();
+    end = Date.now();
     console.log(`Execution time: ${end - start} ms`);
 
 

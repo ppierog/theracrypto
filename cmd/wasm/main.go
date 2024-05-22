@@ -5,12 +5,123 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"reflect"
+	"runtime"
 	"strconv"
 	"syscall/js"
 	"theraCrypto/cmd/crypto"
 	"time"
+	"unsafe"
 )
 
+// https://github.com/golang/go/issues/32402
+func sliceToByteSlice(s interface{}) []byte {
+	switch s := s.(type) {
+	case []int8:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		return *(*[]byte)(unsafe.Pointer(h))
+	case []int16:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		h.Len *= 2
+		h.Cap *= 2
+		return *(*[]byte)(unsafe.Pointer(h))
+	case []int32:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		h.Len *= 4
+		h.Cap *= 4
+		return *(*[]byte)(unsafe.Pointer(h))
+	case []int64:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		h.Len *= 8
+		h.Cap *= 8
+		return *(*[]byte)(unsafe.Pointer(h))
+	case []uint8:
+		return s
+	case []uint16:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		h.Len *= 2
+		h.Cap *= 2
+		return *(*[]byte)(unsafe.Pointer(h))
+	case []uint32:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		h.Len *= 4
+		h.Cap *= 4
+		return *(*[]byte)(unsafe.Pointer(h))
+	case []uint64:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		h.Len *= 8
+		h.Cap *= 8
+		return *(*[]byte)(unsafe.Pointer(h))
+	case []float32:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		h.Len *= 4
+		h.Cap *= 4
+		return *(*[]byte)(unsafe.Pointer(h))
+	case []float64:
+		h := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+		h.Len *= 8
+		h.Cap *= 8
+		return *(*[]byte)(unsafe.Pointer(h))
+	default:
+		panic(fmt.Sprintf("jsutil: unexpected value at sliceToBytesSlice: %T", s))
+	}
+}
+
+func SliceToTypedArray(s interface{}) js.Value {
+	switch s := s.(type) {
+	case []int8:
+		a := js.Global().Get("Uint8Array").New(len(s))
+		js.CopyBytesToJS(a, sliceToByteSlice(s))
+		runtime.KeepAlive(s)
+		buf := a.Get("buffer")
+		return js.Global().Get("Int8Array").New(buf, a.Get("byteOffset"), a.Get("byteLength"))
+	case []int16:
+		a := js.Global().Get("Uint8Array").New(len(s) * 2)
+		js.CopyBytesToJS(a, sliceToByteSlice(s))
+		runtime.KeepAlive(s)
+		buf := a.Get("buffer")
+		return js.Global().Get("Int16Array").New(buf, a.Get("byteOffset"), a.Get("byteLength").Int()/2)
+	case []int32:
+		a := js.Global().Get("Uint8Array").New(len(s) * 4)
+		js.CopyBytesToJS(a, sliceToByteSlice(s))
+		runtime.KeepAlive(s)
+		buf := a.Get("buffer")
+		return js.Global().Get("Int32Array").New(buf, a.Get("byteOffset"), a.Get("byteLength").Int()/4)
+	case []uint8:
+
+		a := js.Global().Get("Uint8Array").New(len(s))
+		js.CopyBytesToJS(a, s)
+		runtime.KeepAlive(s)
+		return a
+
+	case []uint16:
+		a := js.Global().Get("Uint8Array").New(len(s) * 2)
+		js.CopyBytesToJS(a, sliceToByteSlice(s))
+		runtime.KeepAlive(s)
+		buf := a.Get("buffer")
+		return js.Global().Get("Uint16Array").New(buf, a.Get("byteOffset"), a.Get("byteLength").Int()/2)
+	case []uint32:
+		a := js.Global().Get("Uint8Array").New(len(s) * 4)
+		js.CopyBytesToJS(a, sliceToByteSlice(s))
+		runtime.KeepAlive(s)
+		buf := a.Get("buffer")
+		return js.Global().Get("Uint32Array").New(buf, a.Get("byteOffset"), a.Get("byteLength").Int()/4)
+	case []float32:
+		a := js.Global().Get("Uint8Array").New(len(s) * 4)
+		js.CopyBytesToJS(a, sliceToByteSlice(s))
+		runtime.KeepAlive(s)
+		buf := a.Get("buffer")
+		return js.Global().Get("Float32Array").New(buf, a.Get("byteOffset"), a.Get("byteLength").Int()/4)
+	case []float64:
+		a := js.Global().Get("Uint8Array").New(len(s) * 8)
+		js.CopyBytesToJS(a, sliceToByteSlice(s))
+		runtime.KeepAlive(s)
+		buf := a.Get("buffer")
+		return js.Global().Get("Float64Array").New(buf, a.Get("byteOffset"), a.Get("byteLength").Int()/8)
+	default:
+		panic(fmt.Sprintf("jsutil: unexpected value at SliceToTypedArray: %T", s))
+	}
+}
 func JsWrapper[T any](F func(args []js.Value) (T, error), name string, numArgs int) js.Func {
 
 	jsonFunc := js.FuncOf(func(this js.Value, args []js.Value) any {
@@ -50,23 +161,16 @@ func JsWrapperCrypto(args []js.Value, action func([]byte) ([]byte, error)) (inte
 	if args[0].Type() != js.TypeObject || args[0].Length() == 0 {
 		return nil, errors.New("Wrong argument passed, Expected array with non zero length")
 	}
-	//@TODO:  Copy overhead
-	var in []uint8
-	for i := 0; i < args[0].Length(); i++ {
-		in = append(in, (uint8(args[0].Index(i).Int())))
-	}
+
+	in := make([]uint8, args[0].Length())
+	js.CopyBytesToGo(in, args[0])
 
 	encrypted, err := action(in)
 	if err != nil {
 		return nil, err
 	}
-	//@TODO:  Copy overhead
-	var ret []interface{}
-	for i := 0; i < len(encrypted); i++ {
-		ret = append(ret, encrypted[i])
-	}
 
-	return ret, nil
+	return SliceToTypedArray(encrypted), nil
 
 }
 
