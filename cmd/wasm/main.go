@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/aes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -171,7 +172,7 @@ func LoadPubKey(b64Pub string, num KeyNum) (bool, error) {
 }
 
 func EncryptPubKey(plain []byte, num KeyNum) ([]byte, error) {
-	if num > Key3 {
+	if num > Key4 {
 		return nil, errors.New("Bank Not supported")
 	}
 	if !pubRepo[num].Loaded {
@@ -179,6 +180,24 @@ func EncryptPubKey(plain []byte, num KeyNum) ([]byte, error) {
 	}
 	return encryptPubKey(plain, &pubRepo[num].Key)
 
+}
+
+func CryptoAESP(plain []byte, num KeyNum) ([]byte, error) {
+	if num > Key3 {
+		return nil, errors.New("Bank Not supported")
+	}
+	if !aesRepo[num].Loaded {
+		return nil, errors.New("Key Not loaded")
+	}
+	c, err := aes.NewCipher(aesRepo[num].Key[:])
+	if err != nil {
+		return nil, errors.New("Could not create new cipher")
+	}
+
+	out := make([]byte, len(plain))
+
+	c.Encrypt(out, []byte(plain))
+	return out, nil
 }
 
 func Encrypt(plain []byte) ([]byte, error) {
@@ -232,7 +251,7 @@ func JsonWrapper[T any](F func(args []js.Value) (T, error), name string, numArgs
 
 }
 
-func JsonWrapperCryptoRSA(args []js.Value, action func([]byte) ([]byte, error)) (interface{}, error) {
+func JsonWrapperCrypto(args []js.Value, action func([]byte) ([]byte, error)) (interface{}, error) {
 	if len(args) != 1 {
 		return nil, errors.New("Invalid number of arguments passed")
 	}
@@ -298,7 +317,7 @@ func main() {
 	}, "LoadPubKey", 2))
 
 	js.Global().Set("Encrypt", JsonWrapper(func(args []js.Value) (interface{}, error) {
-		return JsonWrapperCryptoRSA(args, Encrypt)
+		return JsonWrapperCrypto(args, Encrypt)
 	}, "Encrypt", 1))
 
 	js.Global().Set("EncryptPubKey", JsonWrapper(func(args []js.Value) (interface{}, error) {
@@ -309,14 +328,14 @@ func main() {
 
 		num := args[1].Int()
 
-		return JsonWrapperCryptoRSA(args[:1], func(input []byte) ([]byte, error) {
+		return JsonWrapperCrypto(args[:1], func(input []byte) ([]byte, error) {
 			return EncryptPubKey(input, KeyNum(num))
 
 		})
 	}, "EncryptPubKey", 2))
 
 	js.Global().Set("Decrypt", JsonWrapper(func(args []js.Value) (interface{}, error) {
-		return JsonWrapperCryptoRSA(args, Decrypt)
+		return JsonWrapperCrypto(args, Decrypt)
 
 	}, "Decrypt", 1))
 
@@ -336,5 +355,80 @@ func main() {
 
 	}, "FetchPubKey", 1))
 
+	js.Global().Set("GenerateAesKey", JsonWrapper(func(args []js.Value) (bool, error) {
+
+		if args[0].Type() != js.TypeNumber {
+			return false, errors.New("Wrong arguments passed, Expected keyNum int")
+		}
+		num := args[0].Int()
+		return GenerateAesKey(KeyNum(num))
+
+	}, "GenerateAesKey", 1))
+
+	js.Global().Set("LoadAesKey", JsonWrapper(func(args []js.Value) (bool, error) {
+
+		if args[0].Type() != js.TypeString || args[1].Type() != js.TypeNumber {
+			return false, errors.New("Wrong arguments passed, Expected (b64 string, keyNum int)")
+		}
+		b64pubKey := args[0].String()
+		num := args[1].Int()
+		return LoadAesKey(b64pubKey, KeyNum(num))
+
+	}, "LoadAesKey", 2))
+
+	js.Global().Set("FetchAesKey", JsonWrapper(func(args []js.Value) (string, error) {
+
+		if args[0].Type() != js.TypeNumber {
+			return "", errors.New("Wrong arguments passed, Expected keyNum int")
+		}
+		num := args[0].Int()
+		return FetchAesKey(KeyNum(num))
+
+	}, "FetchAesKey", 1))
+
+	js.Global().Set("CryptoAes", JsonWrapper(func(args []js.Value) (interface{}, error) {
+		if args[1].Type() != js.TypeNumber {
+			return false, errors.New("Wrong arguments passed, Expected (text []byte, keyNum int)")
+		}
+
+		num := args[1].Int()
+
+		return JsonWrapperCrypto(args[:1], func(input []byte) ([]byte, error) {
+			return CryptoAESP(input, KeyNum(num))
+
+		})
+	}, "CryptoAes", 2))
+
+	js.Global().Set("FromBase64", JsonWrapper(func(args []js.Value) (interface{}, error) {
+
+		if args[0].Type() != js.TypeString {
+			return false, errors.New("Wrong arguments passed, Expected (base64 string)")
+		}
+
+		input := args[0].String()
+		marshaled, err := base64.StdEncoding.DecodeString(input)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return marshaled, nil
+
+	}, "FromBase64", 1))
+
+	js.Global().Set("ToBase64", JsonWrapper(func(args []js.Value) (string, error) {
+
+		if args[0].Type() != js.TypeObject || args[0].Length() == 0 {
+			return "", errors.New("Wrong argument passed, Expected array with non zero length")
+		}
+		//@TODO:  Copy overhead
+		var in []uint8
+		for i := 0; i < args[0].Length(); i++ {
+			in = append(in, (uint8(args[0].Index(i).Int())))
+		}
+
+		return base64.StdEncoding.EncodeToString(in), nil
+
+	}, "FromBase64", 1))
 	<-make(chan int64)
 }
