@@ -48,14 +48,6 @@ func extractPubKey() {
 	pubRepo.Keys[0].Loaded = true
 }
 
-func fetchKey[T Key](repo *KeyStorage[T]) (string, error) {
-	if !repo.Loaded {
-		return "", errors.New("Key not loaded")
-	}
-
-	return repo.MarshaledB64, nil
-}
-
 func loadKey[T Key](b64key string, storage *KeyStorage[T], parser func([]byte) (*T, error)) (bool, error) {
 	storage.Loaded = false
 	marshaled, err := base64.StdEncoding.DecodeString(b64key)
@@ -85,87 +77,54 @@ func encryptPubKey(plain []byte, key *rsa.PublicKey) ([]byte, error) {
 	return cipher, nil
 }
 
-func GeneratePrivKey(length int) (bool, error) {
-	privRepo.Keys[0].Loaded = false
-	if length != 2048 && length != 4096 {
-		return false, errors.New("Not supported key length, use 2048 or 4096")
+func GenerateKey[T Key](repo *KeyRepo[T], num int, generator func() (T, []byte, error)) (bool, error) {
+	if num > len(repo.Keys) || num < 0 {
+		return false, errors.New("Bank Not supported")
 	}
-	privateKey, err := rsa.GenerateKey(rand.Reader, length)
-	if err != nil {
-		return false, err
+	repo.Keys[num].Loaded = false
+	key, marshaled, error := generator()
+	if error != nil {
+		return false, errors.New("Could not generate key")
 	}
 
-	privRepo.Keys[0].Key = *privateKey
-	marshaled := x509.MarshalPKCS1PrivateKey(&privRepo.Keys[0].Key)
-	privRepo.Keys[0].MarshaledB64 = base64.StdEncoding.EncodeToString(marshaled)
-	privRepo.Keys[0].Loaded = true
-	extractPubKey()
-
+	repo.Keys[num].Key = key
+	repo.Keys[num].Loaded = true
+	repo.Keys[num].MarshaledB64 = base64.StdEncoding.EncodeToString(marshaled)
 	return true, nil
 }
 
-func GenerateAesKey(num int) (bool, error) {
-	if num > len(aesRepo.Keys) {
+func LoadKey[T Key](b64 string, repo *KeyRepo[T], num int, parser func([]byte) (*T, error)) (bool, error) {
+	if num > len(repo.Keys) || num < 0 {
 		return false, errors.New("Bank Not supported")
 	}
-	aesRepo.Keys[num].Loaded = false
-	key := make([]byte, AES_LEN)
-	n, err := rand.Read(key)
-	if err != nil || n != AES_LEN {
-		return false, err
-	}
-	aesRepo.Keys[num].Key = AesKey(key)
-	aesRepo.Keys[num].Loaded = true
-	aesRepo.Keys[num].MarshaledB64 = base64.StdEncoding.EncodeToString(key)
-	return true, nil
-
+	return loadKey(b64, &repo.Keys[num], parser)
 }
 
-func LoadAesKey(b64Pub string, num int) (bool, error) {
-	if num > len(aesRepo.Keys) {
-		return false, errors.New("Bank Not supported")
-	}
-	return loadKey(b64Pub, &aesRepo.Keys[num],
-		func([]byte) (*AesKey, error) {
-			return &aesRepo.Keys[num].Key, nil
-		})
-}
-
-func FetchAesKey(num int) (string, error) {
-	if num > len(aesRepo.Keys) {
+func FetchKey[T Key](repo *KeyRepo[T], num int) (string, error) {
+	if num > len(repo.Keys) || num < 0 {
 		return "", errors.New("Bank Not supported")
 	}
-	return fetchKey(&aesRepo.Keys[num])
+	if !repo.Keys[num].Loaded {
+		return "", errors.New("Key not loaded")
+	}
+
+	return repo.Keys[num].MarshaledB64, nil
 }
 
 func LoadPrivKey(b64Priv string) (bool, error) {
 	status, err := loadKey(b64Priv, &privRepo.Keys[0], x509.ParsePKCS1PrivateKey)
-	if nil == err {
-		extractPubKey()
+	if nil != err {
+		return false, err
 	}
-	return status, err
+
+	extractPubKey()
+
+	return status, nil
 
 }
 
 func FetchPrivKey() (string, error) {
-	return fetchKey(&privRepo.Keys[0])
-}
-
-func FetchPubKey(num int) (string, error) {
-	if num > len(pubRepo.Keys) {
-		return "", errors.New("Bank Not supported")
-	}
-	return fetchKey(&pubRepo.Keys[num])
-}
-
-func LoadPubKey(b64Pub string, num int) (bool, error) {
-	if num == 0 {
-		return false, errors.New("Could not load to bank 0")
-	}
-	if num > len(pubRepo.Keys) {
-		return false, errors.New("Bank Not supported")
-	}
-	return loadKey(b64Pub, &pubRepo.Keys[num], x509.ParsePKCS1PublicKey)
+	return FetchKey(&privRepo, 0)
 }
 
 func EncryptPubKey(plain []byte, num int) ([]byte, error) {
@@ -179,7 +138,7 @@ func EncryptPubKey(plain []byte, num int) ([]byte, error) {
 
 }
 
-func CryptoAESP(plain []byte, num int) ([]byte, error) {
+func CryptoAES(plain []byte, num int) ([]byte, error) {
 	if num > len(aesRepo.Keys) {
 		return nil, errors.New("Bank Not supported")
 	}
@@ -292,8 +251,17 @@ func main() {
 			return false, errors.New("Wrong argument passed, Expected int length of key")
 		}
 		length := args[0].Int()
+		if length != 2048 && length != 4096 {
+			return false, errors.New("Not supported key length, use 2048 or 4096")
+		}
 
-		return GeneratePrivKey(length)
+		return GenerateKey(&privRepo, 0, func() (rsa.PrivateKey, []byte, error) {
+			privateKey, err := rsa.GenerateKey(rand.Reader, length)
+			if err != nil {
+				return rsa.PrivateKey{}, nil, err
+			}
+			return *privateKey, x509.MarshalPKCS1PrivateKey(privateKey), nil
+		})
 
 	}, "GeneratePrivKey", 1))
 
@@ -314,7 +282,13 @@ func main() {
 		}
 		b64pubKey := args[0].String()
 		num := args[1].Int()
-		return LoadPubKey(b64pubKey, num)
+		if num == 0 {
+			return false, errors.New("Could not load to bank 0")
+		}
+
+		return LoadKey(b64pubKey, &pubRepo, num, func(b []byte) (*rsa.PublicKey, error) {
+			return x509.ParsePKCS1PublicKey(b)
+		})
 
 	}, "LoadPubKey", 2))
 
@@ -353,7 +327,7 @@ func main() {
 			return "", errors.New("Wrong arguments passed, Expected keyNum int")
 		}
 		num := args[0].Int()
-		return FetchPubKey(num)
+		return FetchKey(&pubRepo, num)
 
 	}, "FetchPubKey", 1))
 
@@ -363,7 +337,14 @@ func main() {
 			return false, errors.New("Wrong arguments passed, Expected keyNum int")
 		}
 		num := args[0].Int()
-		return GenerateAesKey(num)
+		return GenerateKey(&aesRepo, num, func() (AesKey, []byte, error) {
+			key := make([]byte, AES_LEN)
+			n, err := rand.Read(key)
+			if err != nil || n != AES_LEN {
+				return AesKey{}, nil, err
+			}
+			return AesKey(key), key, nil
+		})
 
 	}, "GenerateAesKey", 1))
 
@@ -372,9 +353,14 @@ func main() {
 		if args[0].Type() != js.TypeString || args[1].Type() != js.TypeNumber {
 			return false, errors.New("Wrong arguments passed, Expected (b64 string, keyNum int)")
 		}
-		b64pubKey := args[0].String()
+		b64Key := args[0].String()
 		num := args[1].Int()
-		return LoadAesKey(b64pubKey, num)
+
+		return LoadKey(b64Key, &aesRepo, num, func(b []byte) (*AesKey, error) {
+			aesKey := new(AesKey)
+			*aesKey = AesKey(b)
+			return aesKey, nil
+		})
 
 	}, "LoadAesKey", 2))
 
@@ -384,7 +370,7 @@ func main() {
 			return "", errors.New("Wrong arguments passed, Expected keyNum int")
 		}
 		num := args[0].Int()
-		return FetchAesKey(num)
+		return FetchKey(&aesRepo, num)
 
 	}, "FetchAesKey", 1))
 
@@ -396,7 +382,7 @@ func main() {
 		num := args[1].Int()
 
 		return JsonWrapperCrypto(args[:1], func(input []byte) ([]byte, error) {
-			return CryptoAESP(input, num)
+			return CryptoAES(input, num)
 
 		})
 	}, "CryptoAes", 2))
