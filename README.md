@@ -122,9 +122,9 @@ Within a particular ecosystem, there may be a common way of installing things, s
 
     // Encrypt & Decrypt in WASM
     encrypted = Encrypt(encoded)
-    decrypted = Decrypt(encrypted)
+    decrypted = Decrypt(encrypted.ret)
 
-    String.fromCharCode.apply(null, decrypted)
+    String.fromCharCode.apply(null, decrypted.ret)
 
 
 ## Support
