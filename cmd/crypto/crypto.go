@@ -2,11 +2,13 @@ package crypto
 
 import (
 	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"io"
 )
 
 const AES_LEN = 32
@@ -194,6 +196,31 @@ func EncryptAESBlock(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) 
 	})
 
 }
+
+func EncryptAES(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
+	return Crypto(repo, num, in, func(key *AesKey, in []byte) ([]byte, error) {
+
+		c, err := aes.NewCipher(key[:])
+		if err != nil {
+			return nil, errors.New("could not create new cipher")
+		}
+
+		// The IV needs to be unique, but not secure. Therefore it's common to
+		// include it at the beginning of the ciphertext.
+		ciphertext := make([]byte, aes.BlockSize+len(in))
+		iv := ciphertext[:aes.BlockSize]
+		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+			return nil, errors.New("could not generate iv")
+		}
+
+		stream := cipher.NewCFBEncrypter(c, iv)
+		stream.XORKeyStream(ciphertext[aes.BlockSize:], in)
+
+		return ciphertext, nil
+	})
+
+}
+
 func DecryptAESBlock(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
 	return Crypto(repo, num, in, func(key *AesKey, in []byte) ([]byte, error) {
 
@@ -206,6 +233,32 @@ func DecryptAESBlock(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) 
 		c.Decrypt(out[:], in)
 
 		return out[:], nil
+	})
+
+}
+
+func DecryptAES(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
+	return Crypto(repo, num, in, func(key *AesKey, in []byte) ([]byte, error) {
+
+		c, err := aes.NewCipher(key[:])
+		if err != nil {
+			return nil, errors.New("could not create new cipher")
+		}
+
+		// The IV needs to be unique, but not secure. Therefore it's common to
+		// include it at the beginning of the ciphertext.
+		if len(in) < aes.BlockSize {
+			return nil, errors.New("ciphertext to short")
+		}
+		iv := in[:aes.BlockSize]
+		in = in[aes.BlockSize:]
+
+		stream := cipher.NewCFBDecrypter(c, iv)
+
+		// XORKeyStream can work in-place if the two arguments are the same.
+		stream.XORKeyStream(in, in)
+		return in, nil
+
 	})
 
 }

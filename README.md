@@ -117,7 +117,7 @@ Within a particular ecosystem, there may be a common way of installing things, s
     utf8Encode = new TextEncoder();
     encoded = utf8Encode.encode(mySecret);
 
-    // Generate Private Key, size 2048 bits
+    // Private Key enc/dec with key size 2048 bits
     GeneratePrivKey(2048)
 
     // Encrypt & Decrypt in WASM
@@ -125,6 +125,28 @@ Within a particular ecosystem, there may be a common way of installing things, s
     decrypted = Decrypt(encrypted.ret)
 
     String.fromCharCode.apply(null, decrypted.ret)
+    // Aes Key Bank 0 16bytes Block enc/dec
+
+    GenerateAesKey(0)
+    encrypted = EncryptAesBlock(encoded)
+    decrypted = DecryptAesBlock(encrypted.ret)
+    String.fromCharCode.apply(null, decrypted.ret)
+
+    // Aes Key Bank 0 Stream(1Mb) enc/dec
+    input = Array.from({length: 1024*1024}, () => Math.floor(Math.random() * 255));
+    console.log("Start Encryption")
+    const start = Date.now();
+    encrypted = EncryptAes(input,0)
+    const end = Date.now();
+    console.log(`Execution time: ${end - start} ms`);
+
+    console.log("Start Decryption")
+    const start = Date.now();
+    decrypted = DecryptAes(encrypted.ret,0)
+    const end = Date.now();
+    console.log(`Execution time: ${end - start} ms`);
+
+
 
 
 ## Support

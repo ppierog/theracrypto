@@ -1,6 +1,8 @@
 package crypto
 
 import (
+	"bytes"
+	"crypto/rand"
 	"crypto/rsa"
 	"errors"
 	"testing"
@@ -258,7 +260,7 @@ func TestAesRepo(t *testing.T) {
 	t.Log(cipher)
 
 	if err != nil {
-		t.Fatalf("Wrong status from EncryptAESKey")
+		t.Fatalf("Wrong status from EncryptAESBlock")
 	}
 
 	out, err := DecryptAESBlock(&aesRepo, 0, cipher)
@@ -273,5 +275,45 @@ func TestAesRepo(t *testing.T) {
 	if string(out) != in {
 		t.Fatalf("Wrong Encrypt/Decrypt")
 	}
+
+}
+
+func TestAes(t *testing.T) {
+
+	aesRepo := KeyRepo[AesKey]{}
+	aesRepo.Init(1)
+
+	status, err := GenerateAesKey(&aesRepo, 0)
+
+	if !status || nil != err {
+		t.Fatalf("Wrong status from GenerateKey")
+	}
+
+	// first step is to create a slice of bytes with the desired length
+	in := make([]byte, 1024*1024*2)
+	// then we can call rand.Read.
+	_, err = rand.Read(in)
+	if err != nil {
+		t.Fatalf("Wrong status from rand.Read")
+	}
+	t.Log(in)
+
+	cipher, err := EncryptAES(&aesRepo, 0, in)
+
+	t.Log(cipher)
+
+	if err != nil {
+		t.Fatalf("Wrong status from EncryptAES")
+	}
+
+	out, err := DecryptAES(&aesRepo, 0, cipher)
+
+	if err != nil {
+		t.Fatalf("Wrong status from DecryptAES")
+	}
+	if !bytes.Equal(in, out) {
+		t.Fatalf("Data not consistent")
+	}
+	t.Log(out)
 
 }

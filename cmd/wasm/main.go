@@ -233,6 +233,34 @@ func main() {
 		})
 	}, "DecryptAesBlock", 2))
 
+	js.Global().Set("EncryptAes", JsWrapper(func(args []js.Value) (interface{}, error) {
+
+		if args[1].Type() != js.TypeNumber {
+			return false, errors.New("Wrong arguments passed, Expected (text []byte, keyNum int)")
+		}
+
+		num := args[1].Int()
+
+		return JsWrapperCrypto(args[:1], func(input []byte) ([]byte, error) {
+			return crypto.EncryptAES(&aesRepo, num, input)
+
+		})
+	}, "EncryptAes", 2))
+
+	js.Global().Set("DecryptAes", JsWrapper(func(args []js.Value) (interface{}, error) {
+
+		if args[1].Type() != js.TypeNumber {
+			return false, errors.New("Wrong arguments passed, Expected (text []byte, keyNum int)")
+		}
+
+		num := args[1].Int()
+
+		return JsWrapperCrypto(args[:1], func(input []byte) ([]byte, error) {
+			return crypto.DecryptAES(&aesRepo, num, input)
+
+		})
+	}, "DecryptAes", 2))
+
 	js.Global().Set("FromBase64", JsWrapper(func(args []js.Value) (interface{}, error) {
 
 		if args[0].Type() != js.TypeString {
@@ -257,6 +285,6 @@ func main() {
 
 		return base64.StdEncoding.EncodeToString(in), nil
 
-	}, "FromBase64", 1))
+	}, "ToBase64", 1))
 	<-make(chan int64)
 }
