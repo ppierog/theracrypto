@@ -1,13 +1,18 @@
 package crypto
 
 import (
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"hash"
 	"io"
 )
 
@@ -105,8 +110,8 @@ func Crypto[T Key](repo *KeyRepo[T], num int, in []byte, crypto CryptoFunction[T
 }
 
 func GeneratePrivKey(repo *KeyRepo[rsa.PrivateKey], num int, length int) (bool, error) {
-	if length != 2048 && length != 4096 {
-		return false, errors.New("wrong key length, supported sizes : 2048 or 4096")
+	if length != 512 && length != 1024 && length != 2048 && length != 4096 {
+		return false, errors.New("wrong key length, supported sizes : 512/1024/2048/4096")
 	}
 	return GenerateKey(repo, num, func() (rsa.PrivateKey, []byte, error) {
 		privateKey, err := rsa.GenerateKey(rand.Reader, length)
@@ -178,6 +183,26 @@ func DecryptPrivKey(repo *KeyRepo[rsa.PrivateKey], num int, in []byte) ([]byte, 
 	return Crypto(repo, num, in, func(key *rsa.PrivateKey, in []byte) ([]byte, error) {
 		return rsa.DecryptPKCS1v15(rand.Reader, key, in)
 	})
+
+}
+
+func SignHashMsg(repo *KeyRepo[rsa.PrivateKey], num int, hashMethod crypto.Hash, in []byte) ([]byte, error) {
+
+	return Crypto(repo, num, in, func(key *rsa.PrivateKey, in []byte) ([]byte, error) {
+		return rsa.SignPKCS1v15(rand.Reader, key, hashMethod, in)
+	})
+
+}
+
+func VerifyHashMsg(repo *KeyRepo[rsa.PublicKey], num int, hashMethod crypto.Hash, hash []byte, signature []byte) error {
+	if num >= len(repo.Keys) {
+		return errors.New("bank not supported")
+	}
+	if !repo.Keys[num].Loaded {
+		return errors.New("key not loaded")
+	}
+
+	return rsa.VerifyPKCS1v15(&repo.Keys[num].Key, hashMethod, hash, signature)
 
 }
 
@@ -260,5 +285,27 @@ func DecryptAES(repo *KeyRepo[AesKey], num int, in []byte) ([]byte, error) {
 		return in, nil
 
 	})
+
+}
+
+func HashBlock(hashMethod crypto.Hash, in []byte) ([]byte, error) {
+	var hash hash.Hash
+	switch hashMethod {
+
+	case crypto.MD5:
+		hash = md5.New()
+
+	case crypto.SHA256:
+		hash = sha256.New()
+
+	case crypto.SHA512:
+		hash = sha512.New()
+	default:
+		return nil, errors.New("not supported HASH function")
+	}
+
+	hash.Write(in)
+	bs := hash.Sum(nil)
+	return bs, nil
 
 }
