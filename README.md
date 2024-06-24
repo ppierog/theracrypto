@@ -72,7 +72,7 @@ Each functions returns js object like below :
 
 GeneratePrivKey(int keyLength) -> bool
 Generate Private key in trusty WASM zone, returns true if success. Supported key length
-is 2048 or 4096.
+are 512/1024/2048/4096 bits.
 
 FetchPrivKey() -> b64 string
 Fetch Private Key from WASM - returns marshaled Private Key which is next converted to base64 string.

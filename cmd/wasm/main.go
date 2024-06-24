@@ -1,6 +1,7 @@
 package main
 
 import (
+	cr "crypto"
 	"crypto/rsa"
 	"encoding/base64"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"syscall/js"
 	"theraCrypto/cmd/crypto"
+
 	"time"
 	"unsafe"
 )
@@ -122,6 +124,7 @@ func SliceToTypedArray(s interface{}) js.Value {
 		panic(fmt.Sprintf("jsutil: unexpected value at SliceToTypedArray: %T", s))
 	}
 }
+
 func JsWrapper[T any](F func(args []js.Value) (T, error), name string, numArgs int) js.Func {
 
 	jsonFunc := js.FuncOf(func(this js.Value, args []js.Value) any {
@@ -186,7 +189,7 @@ func main() {
 	pubRepo := crypto.KeyRepo[rsa.PublicKey]{}
 
 	privRepo.Init(1)
-	pubRepo.Init(4)
+	pubRepo.Init(3)
 	aesRepo.Init(3)
 
 	js.Global().Set("GeneratePrivKey", JsWrapper(func(args []js.Value) (bool, error) {
@@ -262,6 +265,57 @@ func main() {
 		})
 
 	}, "Decrypt", 1))
+
+	js.Global().Set("SignHashMsg", JsWrapper(func(args []js.Value) (interface{}, error) {
+		if len(args) != 2 {
+			return nil, errors.New("Invalid number of arguments passed")
+		}
+
+		if args[0].Type() != js.TypeNumber {
+			return nil, errors.New("Wrong argument passed, Expected Number of HashMethod")
+		}
+		num := args[0].Int()
+
+		return JsWrapperCrypto(args[1:], func(input []byte) ([]byte, error) {
+			return crypto.SignHashMsg(&privRepo, 0, cr.Hash(num), input)
+
+		})
+
+	}, "SignHashMsg", 2))
+
+	js.Global().Set("VerifyHashMsg", JsWrapper(func(args []js.Value) (int, error) {
+		if len(args) != 4 {
+			return -1, errors.New("Invalid number of arguments passed")
+
+		}
+
+		if args[0].Type() != js.TypeNumber {
+			return -1, errors.New("Wrong argument passed pos 0, Expected Number of PubKey")
+		}
+		num := args[0].Int()
+
+		if args[1].Type() != js.TypeNumber {
+			return -1, errors.New("Wrong argument passed pos 1, Expected Number of HashMethod")
+		}
+		numHash := args[1].Int()
+
+		if args[2].Type() != js.TypeObject || args[2].Length() == 0 {
+			return -1, errors.New("Wrong argument passed pos 2, Expected array with non zero length")
+		}
+
+		if args[3].Type() != js.TypeObject || args[3].Length() == 0 {
+			return -1, errors.New("Wrong argument passed pos 3, Expected array with non zero length")
+		}
+
+		hash := make([]uint8, args[2].Length())
+		js.CopyBytesToGo(hash, args[2])
+
+		signature := make([]uint8, args[3].Length())
+		js.CopyBytesToGo(signature, args[3])
+
+		return 0, crypto.VerifyHashMsg(&pubRepo, num, cr.Hash(numHash), hash, signature)
+
+	}, "VerifyHashMsg", 4))
 
 	js.Global().Set("FetchPrivKey", JsWrapper(func(args []js.Value) (string, error) {
 

@@ -2,9 +2,13 @@ package crypto
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -164,7 +168,7 @@ func TestPrivRepo(t *testing.T) {
 		t.Fatalf("Wrong status from LoadPubKey")
 	}
 
-	b64PubKey2, err := FetchPubKey(&publicRepo, 0)
+	b64PubKey2, _ := FetchPubKey(&publicRepo, 0)
 
 	if b64PubKey1 != b64PubKey2 {
 		t.Fatalf("Pub Key Inconsistency")
@@ -315,5 +319,97 @@ func TestAes(t *testing.T) {
 		t.Fatalf("Data not consistent")
 	}
 	t.Log(out)
+
+}
+
+func TestSignature(t *testing.T) {
+
+	privateRepo := KeyRepo[rsa.PrivateKey]{}
+	publicRepo := KeyRepo[rsa.PublicKey]{}
+	privateRepo.Init(1)
+	publicRepo.Init(1)
+
+	status, err := GeneratePrivKey(&privateRepo, 0, 512)
+
+	if !status || nil != err {
+		t.Fatalf("Wrong status from GenerateKey")
+	}
+	b64Key1, err := FetchPrivKey(&privateRepo, 0)
+
+	if err != nil {
+		t.Fatalf("Wrong status from FetchPrivKey")
+	}
+
+	t.Log(b64Key1)
+
+	in := "aslk1234"
+	h := sha256.New()
+
+	h.Write([]byte(in))
+
+	bs := h.Sum(nil)
+
+	cipher, err := SignHashMsg(&privateRepo, 0, crypto.SHA256, bs)
+	t.Log(in)
+	t.Log([]byte(in))
+
+	t.Log(cipher)
+
+	if err != nil {
+		t.Fatalf("Wrong status from SignHashMsg")
+	}
+
+	ExtractPubKey(&privateRepo.Keys[0], &publicRepo.Keys[0])
+
+	b64Key2, _ := FetchPubKey(&publicRepo, 0)
+	t.Log(b64Key2)
+
+	err = VerifyHashMsg(&publicRepo, 0, crypto.SHA256, bs, cipher)
+
+	if err != nil {
+		t.Fatalf("Wrong status from VerifyHashMsg")
+	}
+
+}
+
+func TestHash(t *testing.T) {
+	type TestVector struct {
+		msg  string
+		hash string
+		alg  crypto.Hash
+	}
+
+	toHex :=
+		func(in []byte) string {
+			var hex []string
+			for i := 0; i < len(in); i++ {
+				hex = append(hex, fmt.Sprintf("%02x", in[i]))
+			}
+
+			return strings.Join(hex, "")
+		}
+
+	testVector := []TestVector{ // echo -n "aslk12" | sha256sum 7ee22696d9379fdcb90a526616c7b9ceec9c43183b010b65e0da160868c31cf0
+		{msg: "aslk12", hash: "7ee22696d9379fdcb90a526616c7b9ceec9c43183b010b65e0da160868c31cf0", alg: crypto.SHA256},
+		{msg: "aslk1234", hash: "c5731671e63c051e177606da7f247c16", alg: crypto.MD5}, // echo -n "aslk1234" | md5sum 5731671e63c051e177606da7f247c16
+		//echo aslk98 | sha512sum e6dd9a011e4600cb13a014881a0251c8e136f0a36f6705965978e3227db88fa59b5c0333c02d5ba2da04b4ff671ed249cf66dfc1e17aa211ecb8cd1472b3d1b6
+		{msg: "aslk98", hash: "e6dd9a011e4600cb13a014881a0251c8e136f0a36f6705965978e3227db88fa59b5c0333c02d5ba2da04b4ff671ed249cf66dfc1e17aa211ecb8cd1472b3d1b6", alg: crypto.SHA512},
+	}
+
+	for i := 0; i < len(testVector); i++ {
+
+		out, err := HashBlock(testVector[i].alg, []byte(testVector[i].msg))
+		if err != nil {
+			t.Fatalf("Wrong Status from HASH 256")
+		}
+
+		if toHex(out) != testVector[i].hash || err != nil {
+			t.Log(toHex(out))
+			t.Log(testVector[i].hash)
+
+			t.Fatalf("Wrong status from " + testVector[i].alg.String())
+
+		}
+	}
 
 }
