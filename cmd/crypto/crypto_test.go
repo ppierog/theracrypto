@@ -8,7 +8,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"strings"
+	"os"
 	"testing"
 )
 
@@ -17,38 +17,39 @@ type KeyGenerator[T Key] func(r *KeyRepo[T], num int) (bool, error)
 type KeyLoader[T Key] func(b64 string, r *KeyRepo[T], num int) (bool, error)
 
 func TestMain(m *testing.M) {
-
-	m.Run()
-
+	os.Exit(m.Run())
 }
 
-func testBlankRrepo[T Key](t *testing.T, r *KeyRepo[T], generator KeyGenerator[T], loader KeyLoader[T]) {
+func testBlankRepo[T Key](t *testing.T, r *KeyRepo[T], generator KeyGenerator[T], loader KeyLoader[T]) {
+	const errMsg = "bank not supported"
+
 	if len(r.Keys) != 0 {
-		t.Fatalf("Wrong  state of repo after initialization")
+		t.Fatalf("Expected repo to be empty after initialization")
 	}
+
 	status, err := generator(r, 0)
-	if status || nil == err {
-		t.Fatalf("Wrong status from GenerateKey")
+	if err == nil || status {
+		t.Fatalf("Expected GenerateKey to fail with no keys")
 	}
 
-	if err.Error() != "bank not supported" {
-		t.Fatalf("Wrong error from GenerateKey")
+	if err.Error() != errMsg {
+		t.Fatalf("Expected GenerateKey error to be '%s', got '%s'", errMsg, err.Error())
 	}
+
 	status, err = loader("", r, 0)
-	if status || nil == err {
-		t.Fatalf("Wrong status from LoadKey")
+	if err == nil || status {
+		t.Fatalf("Expected LoadKey to fail with empty input")
 	}
 
-	if err.Error() != "bank not supported" {
-		t.Fatalf("Wrong error from GenerateKey")
+	if err.Error() != errMsg {
+		t.Fatalf("Expected LoadKey error to be '%s', got '%s'", errMsg, err.Error())
 	}
-
 }
 
 func TestBlankRepo(t *testing.T) {
 
 	privateRepo := KeyRepo[rsa.PrivateKey]{}
-	testBlankRrepo(t, &privateRepo,
+	testBlankRepo(t, &privateRepo,
 		func(r *KeyRepo[rsa.PrivateKey], num int) (bool, error) {
 			return GeneratePrivKey(r, 0, 2048)
 		},
@@ -58,7 +59,7 @@ func TestBlankRepo(t *testing.T) {
 	)
 
 	aesRepo := KeyRepo[AesKey]{}
-	testBlankRrepo(t, &aesRepo,
+	testBlankRepo(t, &aesRepo,
 		func(r *KeyRepo[AesKey], num int) (bool, error) {
 			return GenerateAesKey(r, 0)
 		},
@@ -68,7 +69,7 @@ func TestBlankRepo(t *testing.T) {
 	)
 
 	pubRepo := KeyRepo[rsa.PublicKey]{}
-	testBlankRrepo(t, &pubRepo,
+	testBlankRepo(t, &pubRepo,
 		func(r *KeyRepo[rsa.PublicKey], num int) (bool, error) {
 			return false, errors.New("bank not supported")
 		},
@@ -332,12 +333,12 @@ func TestSignature(t *testing.T) {
 	status, err := GeneratePrivKey(&privateRepo, 0, 512)
 
 	if !status || nil != err {
-		t.Fatalf("Wrong status from GenerateKey")
+		t.Fatal("Error generating private key:", err)
 	}
 	b64Key1, err := FetchPrivKey(&privateRepo, 0)
 
 	if err != nil {
-		t.Fatalf("Wrong status from FetchPrivKey")
+		t.Fatal("Error fetching private key:", err)
 	}
 
 	t.Log(b64Key1)
@@ -356,18 +357,21 @@ func TestSignature(t *testing.T) {
 	t.Log(cipher)
 
 	if err != nil {
-		t.Fatalf("Wrong status from SignHashMsg")
+		t.Fatal("Error signing hash message:", err)
 	}
 
 	ExtractPubKey(&privateRepo.Keys[0], &publicRepo.Keys[0])
 
-	b64Key2, _ := FetchPubKey(&publicRepo, 0)
+	b64Key2, err := FetchPubKey(&publicRepo, 0)
+	if err != nil {
+		t.Fatal("Error fetching public key:", err)
+	}
 	t.Log(b64Key2)
 
 	err = VerifyHashMsg(&publicRepo, 0, crypto.SHA256, bs, cipher)
 
 	if err != nil {
-		t.Fatalf("Wrong status from VerifyHashMsg")
+		t.Fatal("Error verifying hash message:", err)
 	}
 
 }
@@ -379,36 +383,24 @@ func TestHash(t *testing.T) {
 		alg  crypto.Hash
 	}
 
-	toHex :=
-		func(in []byte) string {
-			var hex []string
-			for i := 0; i < len(in); i++ {
-				hex = append(hex, fmt.Sprintf("%02x", in[i]))
-			}
+	toHex := func(in []byte) string {
+		return fmt.Sprintf("%x", in)
+	}
 
-			return strings.Join(hex, "")
-		}
-
-	testVector := []TestVector{ // echo -n "aslk12" | sha256sum 7ee22696d9379fdcb90a526616c7b9ceec9c43183b010b65e0da160868c31cf0
+	testVector := []TestVector{
 		{msg: "aslk12", hash: "7ee22696d9379fdcb90a526616c7b9ceec9c43183b010b65e0da160868c31cf0", alg: crypto.SHA256},
-		{msg: "aslk1234", hash: "c5731671e63c051e177606da7f247c16", alg: crypto.MD5}, // echo -n "aslk1234" | md5sum 5731671e63c051e177606da7f247c16
-		//echo aslk98 | sha512sum e6dd9a011e4600cb13a014881a0251c8e136f0a36f6705965978e3227db88fa59b5c0333c02d5ba2da04b4ff671ed249cf66dfc1e17aa211ecb8cd1472b3d1b6
+		{msg: "aslk1234", hash: "c5731671e63c051e177606da7f247c16", alg: crypto.MD5},
 		{msg: "aslk98", hash: "e6dd9a011e4600cb13a014881a0251c8e136f0a36f6705965978e3227db88fa59b5c0333c02d5ba2da04b4ff671ed249cf66dfc1e17aa211ecb8cd1472b3d1b6", alg: crypto.SHA512},
 	}
 
-	for i := 0; i < len(testVector); i++ {
-
-		out, err := HashBlock(testVector[i].alg, []byte(testVector[i].msg))
+	for _, vector := range testVector {
+		out, err := HashBlock(vector.alg, []byte(vector.msg))
 		if err != nil {
-			t.Fatalf("Wrong Status from HASH 256")
+			t.Fatalf("Error hashing message with %s: %v", vector.alg, err)
 		}
 
-		if toHex(out) != testVector[i].hash || err != nil {
-			t.Log(toHex(out))
-			t.Log(testVector[i].hash)
-
-			t.Fatalf("Wrong status from " + testVector[i].alg.String())
-
+		if hexOut := toHex(out); hexOut != vector.hash {
+			t.Fatalf("Hash mismatch for %s: expected %s, got %s", vector.alg, vector.hash, hexOut)
 		}
 	}
 
